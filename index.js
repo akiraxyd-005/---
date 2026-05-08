@@ -1,7 +1,3 @@
-/**
- * Voltaria WhatsApp Bot - Main Entry Point
- */
-
 process.env.PUPPETEER_SKIP_DOWNLOAD = 'true';
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true';
 
@@ -14,37 +10,18 @@ const {
   DisconnectReason,
   Browsers
 } = require('@whiskeysockets/baileys');
-
 const qrcode = require('qrcode-terminal');
 const readline = require('readline');
 const config = require('./config');
 const handler = require('./handler');
 
-// Express server for health checks (Render keeps alive)
+// Express server for health checks (keeps Render awake)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
-    res.send('Voltaria Bot is running!');
-});
-
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
-
-app.listen(PORT, () => {
-    console.log(`✅ Health server running on port ${PORT}`);
-});
-
-// Store for messages
-const store = {
-  messages: new Map(),
-  maxPerChat: 20,
-
-  loadMessage: async (jid, id) => {
-    return store.messages.get(jid)?.get(id) || null;
-  }
-};
+app.get('/', (req, res) => res.send('Voltaria Bot is running!'));
+app.get('/health', (req, res) => res.status(200).send('OK'));
+app.listen(PORT, () => console.log(`✅ Health server on port ${PORT}`));
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('./session');
@@ -64,20 +41,19 @@ async function startBot() {
     if (qr) {
       console.log('\n📱 SCAN QR CODE:\n');
       qrcode.generate(qr, { small: true });
-      console.log('\n⚠️ If QR is broken, use pairing code method:\n');
     }
 
     if (connection === 'open') {
-      console.log('\n✅ Bot connected successfully!');
-      console.log(`📱 Bot Number: ${sock.user.id.split(':')[0]}`);
-      console.log(`🤖 Bot Name: ${config.botName}`);
+      console.log('\n✅ Bot connected!');
+      console.log(`📱 ${sock.user.id.split(':')[0]}`);
+      console.log(`🤖 ${config.botName}`);
       console.log(`⚡ Prefix: ${config.prefix}\n`);
     }
 
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code !== DisconnectReason.loggedOut) {
-        console.log('♻️ Reconnecting in 5 seconds...');
+        console.log('♻️ Reconnecting...');
         setTimeout(startBot, 5000);
       }
     }
@@ -89,37 +65,28 @@ async function startBot() {
     if (type !== 'notify') return;
     for (const msg of messages) {
       if (!msg.message) continue;
-      if (msg.key && msg.key.id) {
-        const from = msg.key.remoteJid;
-        if (!store.messages.has(from)) store.messages.set(from, new Map());
-        store.messages.get(from).set(msg.key.id, msg);
-      }
       try {
         await handler.handleMessage(sock, msg);
       } catch (err) {
-        console.error('Message error:', err.message);
+        console.error('Error:', err.message);
       }
     }
   });
 
-  // Pairing code method (after 5 seconds if not connected)
   setTimeout(async () => {
     if (!sock.user) {
       const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout
       });
-      
-      rl.question('\n🔑 Enter your WhatsApp number (with country code, no +): ', async (number) => {
-        const cleanNumber = number.replace(/[^0-9]/g, '');
-        console.log(`\n📱 Requesting pairing code for ${cleanNumber}...`);
-        
+      rl.question('\n🔑 Enter number (e.g., 254108720384): ', async (num) => {
+        const clean = num.replace(/[^0-9]/g, '');
         try {
-          const code = await sock.requestPairingCode(cleanNumber);
+          const code = await sock.requestPairingCode(clean);
           console.log(`\n🔐 PAIRING CODE: ${code}`);
-          console.log('👉 Open WhatsApp → Settings → Linked Devices → Link with Code\n');
+          console.log('👉 WhatsApp → Settings → Linked Devices → Link with Code\n');
         } catch (err) {
-          console.error('Failed to get pairing code:', err.message);
+          console.error('Error:', err.message);
         }
         rl.close();
       });
@@ -130,12 +97,4 @@ async function startBot() {
 }
 
 console.log('\n🚀 Starting Voltaria Bot...\n');
-console.log(`📦 Bot Name: ${config.botName}`);
-console.log(`⚡ Prefix: ${config.prefix}\n`);
-
-startBot().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
-
-module.exports = { store };
+startBot().catch(err => console.error('Fatal:', err));
