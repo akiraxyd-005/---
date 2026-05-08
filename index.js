@@ -10,12 +10,11 @@ const {
   DisconnectReason,
   Browsers
 } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const readline = require('readline');
 const config = require('./config');
 const handler = require('./handler');
 
-// Express server for health checks (keeps Render awake)
+// Express server for health checks
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -32,28 +31,23 @@ async function startBot() {
     logger: pino({ level: 'silent' }),
     auth: state,
     browser: Browsers.ubuntu('Chrome'),
-    printQRInTerminal: true
+    printQRInTerminal: false // Disable QR, use pairing code
   });
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, qr, lastDisconnect } = update;
-
-    if (qr) {
-      console.log('\n📱 SCAN QR CODE:\n');
-      qrcode.generate(qr, { small: true });
-    }
+    const { connection, lastDisconnect } = update;
 
     if (connection === 'open') {
-      console.log('\n✅ Bot connected!');
-      console.log(`📱 ${sock.user.id.split(':')[0]}`);
-      console.log(`🤖 ${config.botName}`);
+      console.log('\n✅ Bot connected successfully!');
+      console.log(`📱 Bot Number: ${sock.user.id.split(':')[0]}`);
+      console.log(`🤖 Bot Name: ${config.botName}`);
       console.log(`⚡ Prefix: ${config.prefix}\n`);
     }
 
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;
       if (code !== DisconnectReason.loggedOut) {
-        console.log('♻️ Reconnecting...');
+        console.log('♻️ Reconnecting in 5 seconds...');
         setTimeout(startBot, 5000);
       }
     }
@@ -73,28 +67,32 @@ async function startBot() {
     }
   });
 
-  setTimeout(async () => {
-    if (!sock.user) {
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-      });
-      rl.question('\n🔑 Enter number (e.g., 254108720384): ', async (num) => {
-        const clean = num.replace(/[^0-9]/g, '');
-        try {
-          const code = await sock.requestPairingCode(clean);
-          console.log(`\n🔐 PAIRING CODE: ${code}`);
-          console.log('👉 WhatsApp → Settings → Linked Devices → Link with Code\n');
-        } catch (err) {
-          console.error('Error:', err.message);
-        }
-        rl.close();
-      });
+  // PAIRING CODE METHOD - This will ask for your number
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  rl.question('\n🔑 Enter your WhatsApp number (with country code, no + or spaces): ', async (number) => {
+    const cleanNumber = number.replace(/[^0-9]/g, '');
+    console.log(`\n📱 Requesting pairing code for ${cleanNumber}...`);
+    
+    try {
+      const code = await sock.requestPairingCode(cleanNumber);
+      console.log(`\n🔐 PAIRING CODE: ${code}`);
+      console.log('👉 Open WhatsApp → Settings → Linked Devices → Link with Code');
+      console.log('👉 Enter this code within 2 minutes\n');
+    } catch (err) {
+      console.error('❌ Failed to get pairing code:', err.message);
     }
-  }, 5000);
+    rl.close();
+  });
 
   return sock;
 }
 
 console.log('\n🚀 Starting Voltaria Bot...\n');
+console.log(`📦 Bot Name: ${config.botName}`);
+console.log(`⚡ Prefix: ${config.prefix}\n`);
+
 startBot().catch(err => console.error('Fatal:', err));
